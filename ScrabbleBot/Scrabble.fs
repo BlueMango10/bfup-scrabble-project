@@ -1,4 +1,4 @@
-﻿namespace YourClientName
+﻿namespace CIIVLBot
 
 open ScrabbleUtil
 open ScrabbleUtil.ServerCommunication
