@@ -4,3 +4,8 @@ This is a student project for the course 'Functional Programming, SWU (Sprint 20
 The project is made as a group consisting of the following people:
 - Gustav Samuel Bonde Holmgren (guho@itu.dk)
 - Magnus Dalsgaard Larsen (daml@itu.dk)
+
+## To Run:
+```
+dotnet run --project ScrabbleTemplate
+```
