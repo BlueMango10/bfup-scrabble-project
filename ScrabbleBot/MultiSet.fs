@@ -2,7 +2,6 @@
 type MultiSet<'a> when 'a : comparison =
     | MS of Map<'a, uint32> * uint32
 
-(* Green *)
 let empty = MS (Map.empty, 0u)
 
 let isEmpty (MS(m', _)) = Map.isEmpty m'
@@ -33,8 +32,6 @@ let fold f acc (MS(m', _)) = Map.fold f acc m'
 
 let foldBack f (MS(m', _)) acc = Map.foldBack f m' acc
 
-(* Yellow *)
-// nessesary because CodeJudge doesn't understand Map.keys
 let toSet (MS(m1',_)) = Map.toSeq m1' |> Seq.map fst |> set
 
 let ofList lst = List.fold (fun s a -> addSingle a s) empty lst

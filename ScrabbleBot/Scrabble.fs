@@ -46,6 +46,7 @@ module State =
         dict          : ScrabbleUtil.Dictionary.Dict
         playerNumber  : uint32
         hand          : MultiSet.MultiSet<uint32>
+        // TO:DO Add our own thingy to track placement of pieces.
     }
 
     let mkState b d pn h = {board = b; dict = d;  playerNumber = pn; hand = h }
@@ -65,26 +66,90 @@ module Scrabble =
 
             // remove the force print when you move on from manual input (or when you have learnt the format)
             forcePrint "Input move (format '(<x-coordinate> <y-coordinate> <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
-            let input =  System.Console.ReadLine()
-            let move = RegEx.parseMove input
+            // This is the part where the move is defined:
+            (*
+                This part will be replaced with our move-finding algorithm.
+                The result will be stored in the `move` variable.
+            *)
+            let input =  System.Console.ReadLine() // Human input
+            let move = RegEx.parseMove input // Input parsed into an actual move
 
             debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
+            // Send move to server. This could also be other types of move such as SMChange.
             send cstream (SMPlay move)
 
+            // Recieve message from server and bind it to `msg`.
             let msg = recv cstream
             debugPrint (sprintf "Player %d <- Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
 
+            // Handle the response from the server.
             match msg with
             | RCM (CMPlaySuccess(ms, points, newPieces)) ->
                 (* Successful play by you. Update your state (remove old tiles, add the new ones, change turn, etc) *)
-                let st' = st // This state needs to be updated
+                // Remove played pieces from hand (based on `ms`)
+                // Place tiles on board (based on `ms`)
+                (*
+                performMove = fun ->
+                    fold (* on each tile *) (
+                        place tile on board
+                        remove tile from hand
+                    )
+                *)
+                let placeOnBoard = fun (b: Parser.board) (move: coord * (uint32 * (char * int))) ->
+                    b // remove when it works
+                    (*
+                    { b with squares =
+                        function
+                        | (x,y) when b.squares (x,y) = Success(None) -> Success(Some())
+                    }
+                    *)
+                let removeFromHand = fun (h: MultiSet.MultiSet<uint32>) (_,((id: uint32),_)) ->
+                    MultiSet.removeSingle id h
+                let performMove = fun st ->
+                    List.fold (fun s m -> 
+                        State.mkState
+                            (placeOnBoard (State.board s) m) // place tile on board
+                            (State.dict s)
+                            (State.playerNumber s)
+                            (removeFromHand (State.hand s) m) // remove tile from hand
+                    ) st ms
+                // Add `newPieces` to hand (based on `newPieces`)
+                (*
+                addNewTilesToHand = fun ->
+                    fold (* on `newPieces ` *) (
+                        add add tile to hand
+                    )
+                *)
+                let addToHand = fun (h: MultiSet.MultiSet<uint32>) (id,n) ->
+                    MultiSet.add id n h
+                let addNewTilesToHand = fun st ->
+                    List.fold (fun s np ->
+                        State.mkState
+                            (State.board s)
+                            (State.dict s)
+                            (State.playerNumber s)
+                            (addToHand (State.hand s) np) // add tile to hand
+                    ) st newPieces
+
+                let st' = st |> performMove |> addNewTilesToHand
                 aux st'
             | RCM (CMPlayed (pid, ms, points)) ->
                 (* Successful play by other player. Update your state *)
+                // Place tiles on board (based on `ms`)
+                (*
+                performMove = fun ->
+                    fold (* on each tile *) (
+                        place tile on board
+                    )
+                *)
+                (*
+                let st' = st |> performMove
+                *)
                 let st' = st // This state needs to be updated
                 aux st'
             | RCM (CMPlayFailed (pid, ms)) ->
                 (* Failed play. Update your state *)
+                // Don't update
                 let st' = st // This state needs to be updated
                 aux st'
             | RCM (CMGameOver _) -> ()
@@ -95,15 +160,15 @@ module Scrabble =
         aux st
 
     let startGame 
-            (boardP : boardProg) 
-            (dictf : bool -> Dictionary.Dict) 
-            (numPlayers : uint32) 
-            (playerNumber : uint32) 
-            (playerTurn  : uint32) 
-            (hand : (uint32 * uint32) list)
-            (tiles : Map<uint32, tile>)
-            (timeout : uint32 option) 
-            (cstream : Stream) =
+            (boardP : boardProg)                // Scrabble board
+            (dictf : bool -> Dictionary.Dict)   // Dictionary
+            (numPlayers : uint32)               // Number of players
+            (playerNumber : uint32)             // Our player number
+            (playerTurn  : uint32)              // Starting player number
+            (hand : (uint32 * uint32) list)     // Starting hand
+            (tiles : Map<uint32, tile>)         // Tile lookup table
+            (timeout : uint32 option)           // Timeout in milliseconds
+            (cstream : Stream) =                // Server communication channel
         debugPrint 
             (sprintf "Starting game!
                       number of players = %d
