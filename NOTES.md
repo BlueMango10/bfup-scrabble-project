@@ -33,7 +33,13 @@
 ## Algoritm approach
 
 ### Finding valid words with given start letter using the letters in the hand for the rest of the word
+1. Use the step function with the given first letter.
+2. For each letter in the resulting dictionary, try looking it up using step.
+3. If it exists, repeat step 2-3 with the ned dictionary as root.
+4. Otherwise conclude that no word exists on this path.
+5. If you at any point reach a valid end of a word, try that word, but save where you are at so you can continue the search if the word cannot be used.
 
+We essentially treat the hand as a tree and do a depth-first search.
 
 ### Finding valid places on the board where we can start a word
 It would be a good idea to track places where a word can be started horizontally and vertically seperately.
