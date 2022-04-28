@@ -8,7 +8,7 @@
 - Play the first move identified.
 
 ### May do but probably not:
-- Identify a valid move with a piece on the board as the last letter (would need a gaddag).
+- Identify a valid move with a piece on the board as the last letter (may need a gaddag).
 - Identify a valid move with a piece on the board in the middle of the word.
 - Play the highest scoring move found within the timeout limit.
 
