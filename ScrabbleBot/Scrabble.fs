@@ -31,7 +31,7 @@ module RegEx =
 
  module Print =
 
-    let printHand pieces hand =
+    let printHand (pieces : Map<uint32,tile>) hand =
         hand |>
         MultiSet.fold (fun _ x i -> forcePrint (sprintf "%d -> (%A, %d)\n" x (Map.find x pieces) i)) ()
 
@@ -73,7 +73,7 @@ module State =
 module Scrabble =
     open System.Threading
 
-    let playGame cstream pieces (st : State.state) =
+    let playGame cstream (pieces : Map<uint32,tile>) (st : State.state) =
 
         let nextTurn t st =
             st |> State.withTurn ((t % (State.totalPlayers st)) + 1u) // IDs start from 1
@@ -88,27 +88,102 @@ module Scrabble =
             st |> State.withHand (MultiSet.add id n (State.hand st))
 
 
-        let doMove hasTurn st =
-            match hasTurn with
-            | false -> None
-            | true  ->
-                Print.printHand pieces (State.hand st)
+        // Remove when bot works :)
+        let doMoveHuman st =
+            Print.printHand pieces (State.hand st)
 
-                // remove the force print when you move on from manual input (or when you have learnt the format)
-                forcePrint "Input move (format '(<x-coordinate> <y-coordinate> <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
-                // This is the part where the move is defined:
-                (*
-                    This part will be replaced with our move-finding algorithm.
-                    The result will be stored in the `move` variable.
-                *)
-                let input =  System.Console.ReadLine() // Human input
-                let move = RegEx.parseMove input // Input parsed into an actual move
+            // remove the force print when you move on from manual input (or when you have learnt the format)
+            forcePrint "Input move (format '(<x-coordinate> <y-coordinate> <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
+            // This is the part where the move is defined:
+            (*
+                This part will be replaced with our move-finding algorithm.
+                The result will be stored in the `move` variable.
+            *)
+            let input =  System.Console.ReadLine() // Human input
+            let move = RegEx.parseMove input // Input parsed into an actual move
 
-                debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
-                // Send move to server. This could also be other types of move such as SMChange.
-                send cstream (SMPlay move)
+            debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
+            // Send move to server. This could also be other types of move such as SMChange.
+            send cstream (SMPlay move)
 
-                Some move
+            move
+
+        // This is bot
+        let doMove st =
+
+            let validWord (start: uint32) (h: MultiSet.MultiSet<uint32>): uint32 list option =
+                let rec aux (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list option =
+                    let (c,_) = (Map.find p pieces).MinimumElement // Get a character from tile (We treat blank tiles as A by doing it this way)
+                    let nextDict = Dictionary.step c d
+                    match nextDict with
+                    | None -> None // We did not find a word on this path
+                    | Some (b', d') ->
+                        let nextWord = w @ [p] // Current word + the character we searched for
+                        match b' with
+                        | true  -> Some nextWord // This is the end of a word. Use this word
+                        | false -> // Not end of word. Continue search
+                            let f acc p _ =
+                                match acc with
+                                | Some w -> Some w // We already found a word. Use that
+                                | None   -> aux p (nextWord, d', MultiSet.removeSingle p h) // Try to find word
+                            MultiSet.fold f None h
+
+                aux start ([], (State.dict st), h)
+            
+            let isFirstMove (p: Map<coord, (char * int)>): bool = Map.isEmpty p
+
+            let findStartPositions (st: State.state): ((coord * char) list * (coord * char) list) =
+                let f k v (accH,accV) =
+                    let hasSpaceRight = Map.containsKey (Coord.mkCoordinate ((Coord.getX k) + 1) (Coord.getY k)) (State.pieces st)
+                    let hasSpaceDown  = Map.containsKey (Coord.mkCoordinate (Coord.getX k) ((Coord.getY k) + 1)) (State.pieces st)
+                    ((
+                        match hasSpaceRight with
+                        | true  -> (k,v |> fst)::accH
+                        | false ->               accH
+                    ),(
+                        match hasSpaceDown with
+                        | true  -> (k,v |> fst)::accV
+                        | false ->               accV
+                    ))
+                Map.foldBack f (State.pieces st) ([],[])
+
+
+            let listToMoveHorizontal (start: coord) word =
+                let f i p =
+                    (*                            coord                              * (uint32 *      (char * int)           *)
+                    ((Coord.mkCoordinate ((Coord.getX start) + i) (Coord.getY start)), (p, (Map.find p pieces).MinimumElement))
+                List.mapi f word
+
+            let listToMoveVertical (start: coord) word =
+                let f i p =
+                    (*                            coord                              * (uint32 *      (char * int)           *)
+                    ((Coord.mkCoordinate (Coord.getX start) ((Coord.getY start) + i)), (p, (Map.find p pieces).MinimumElement))
+                List.mapi f word
+
+            // Main part
+            let move: (coord * (uint32 * (char * int))) list option =        
+                match isFirstMove (State.pieces st) with
+                | true  -> // This is the first move
+                    // Find valid word only from hand
+                    let f acc p _ =
+                        match acc with
+                        | Some w -> Some w // We already found a word. Use that
+                        | None   -> validWord p (MultiSet.removeSingle p (State.hand st)) // Try to find word
+                    let word = MultiSet.fold f None (State.hand st)
+                    match word with
+                    | None   -> None // Do nothing (change pieces)
+                    | Some w -> Some (listToMoveHorizontal (State.board st).center w) // Play word horizontally
+                | false -> // This is not the first move
+                    None
+
+            debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
+            // Send move to server. This could also be other types of move such as SMChange.
+            match move with
+            | None   -> send cstream (SMPlay []) // Replace with change all pieces
+            | Some m -> send cstream (SMPlay m)
+            
+            move
+
 
 
         let rec aux (st : State.state) =
@@ -116,7 +191,9 @@ module Scrabble =
             let hasTurn =
                 (State.turn st) = (State.playerNumber st)
 
-            let move = doMove hasTurn st
+            let move = match hasTurn with
+                       | false -> None
+                       | true  -> Some (doMove st)
             move |> ignore
 
             // Recieve message from server and bind it to `msg`.

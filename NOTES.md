@@ -4,7 +4,7 @@
 
 ### Basic requirements for us to be satisfied:
 - Identify a valid move with a piece on the board as the first letter.
-- Changing all pieces in hand if no moves can be identified.
+- Change all pieces in hand if no moves can be identified.
 - Play the first move identified.
 
 ### May do but probably not:
@@ -17,10 +17,10 @@
 - Change pieces intelligently.
 
 ## Development plan
-1. Function for finding a valid word with a given start letter using the letters in the hand for the rest of the word.
-2. Detect if it is the first move in the game.
-3. Place a word using only letters in the hand if it is the first move in the game.
-4. Function to find places on the board where we can start a word.
+1. ~~Function for finding a valid word with a given start letter using the letters in the hand for the rest of the word.~~
+2. ~~Detect if it is the first move in the game.~~
+3. ~~Place a word using only letters in the hand if it is the first move in the game.~~
+4. ~~Function to find places on the board where we can start a word.~~
 5. Function for checking if a word can be placed on the board (only check if it intersects other pieces at first).
 6. Place the first valid word.
 7. Using the previously defined functions to find a valid place to start a word, then finding a word using that start letter which fits in that position.
@@ -28,14 +28,15 @@
 9. Support all client messages.
 10. Change all pieces in hand if no moves were found.
 11. Make sure it plays nicely with other bots `:)`
-12. At this point we should be satisfying the project requirements.
+12. **At this point we should be satisfying the project requirements.**
+13. Make it so we do multiple attempts at each start postion.
 
 ## Algoritm approach
 
 ### Finding valid words with given start letter using the letters in the hand for the rest of the word
 1. Use the step function with the given first letter.
 2. For each letter in the resulting dictionary, try looking it up using step.
-3. If it exists, repeat step 2-3 with the ned dictionary as root.
+3. If it exists, repeat step 2-3 with the next dictionary as root.
 4. Otherwise conclude that no word exists on this path.
 5. If you at any point reach a valid end of a word, try that word, but save where you are at so you can continue the search if the word cannot be used.
 
@@ -50,7 +51,7 @@ There are two approaches:
 
 A possible horizontal starting position would be a piece with no piece on the immediate right of it. A possible vertical starting position would be a piece with no piece immediatly below it.
 
-We would only need to do this once every time we make a move, so approack 2 may be the best option (the board is updated more often than we make moves).
+We would only need to do this once every time we make a move, so approach 2 may be the best option (the board is updated more often than we make moves).
 
 ### Checking if a word intersects other pieces
 Simply check the map if a piece is placed in any of the coordinates which the word wants to be placed in.
