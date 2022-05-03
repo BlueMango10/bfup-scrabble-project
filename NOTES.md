@@ -21,10 +21,10 @@
 2. ~~Detect if it is the first move in the game.~~
 3. ~~Place a word using only letters in the hand if it is the first move in the game.~~
 4. ~~Function to find places on the board where we can start a word.~~
-5. Function for checking if a word can be placed on the board (only check if it intersects other pieces at first).
-6. Place the first valid word.
-7. Using the previously defined functions to find a valid place to start a word, then finding a word using that start letter which fits in that position.
-8. Fix the function from step 5 to check all other words created as a consequence of the placement.
+5. ~~Function for checking if a word can be placed on the board (only check if it intersects other pieces at first).~~
+6. ~~Place the first valid word.~~
+7. ~~Using the previously defined functions to find a valid place to start a word, then finding a word using that start letter which fits in that position.~~
+8. ~~Fix the function from step 5 to check all other words created as a consequence of the placement.~~
 9. Support all client messages.
 10. Change all pieces in hand if no moves were found.
 11. Make sure it plays nicely with other bots `:)`

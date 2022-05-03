@@ -111,7 +111,8 @@ module Scrabble =
         // This is bot
         let doMove st =
 
-            let validWord (start: uint32) (h: MultiSet.MultiSet<uint32>): uint32 list option =
+            /// Returns the virst valid word found in `dict` using the letters from `hand`
+            let validWord hand dict : uint32 list option =
                 let rec aux (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list option =
                     let (c,_) = (Map.find p pieces).MinimumElement // Get a character from tile (We treat blank tiles as A by doing it this way)
                     let nextDict = Dictionary.step c d
@@ -128,53 +129,152 @@ module Scrabble =
                                 | None   -> aux p (nextWord, d', MultiSet.removeSingle p h) // Try to find word
                             MultiSet.fold f None h
 
-                aux start ([], (State.dict st), h)
+                let f acc p _ = // Find initial character to use from hand
+                    match acc with
+                    | Some w -> Some w
+                    | None   -> aux p ([], dict, MultiSet.removeSingle p hand)
+                MultiSet.fold f None (State.hand st)
+
+            /// Returns the first valid continuation from `start` using the letters from `hand`
+            /// (*not* including the first letter `start`)
+            let finishWord (start: char) hand : uint32 list option =
+                let initialDict = Dictionary.step start (State.dict st)
+                match initialDict with
+                    | None          -> None
+                    | Some (_,dict) -> validWord hand dict
             
             let isFirstMove (p: Map<coord, (char * int)>): bool = Map.isEmpty p
 
             let findStartPositions (st: State.state): ((coord * char) list * (coord * char) list) =
                 let f k v (accH,accV) =
-                    let hasSpaceRight = Map.containsKey (Coord.mkCoordinate ((Coord.getX k) + 1) (Coord.getY k)) (State.pieces st)
-                    let hasSpaceDown  = Map.containsKey (Coord.mkCoordinate (Coord.getX k) ((Coord.getY k) + 1)) (State.pieces st)
+                    let hasNeighborRight = Map.containsKey (Coord.mkCoordinate ((Coord.getX k) + 1) (Coord.getY k)) (State.pieces st)
+                    let hasNeighborDown  = Map.containsKey (Coord.mkCoordinate (Coord.getX k) ((Coord.getY k) + 1)) (State.pieces st)
                     ((
-                        match hasSpaceRight with
-                        | true  -> (k,v |> fst)::accH
-                        | false ->               accH
+                        match hasNeighborRight with
+                        | false -> (k,v |> fst)::accH
+                        | true  ->               accH
                     ),(
-                        match hasSpaceDown with
-                        | true  -> (k,v |> fst)::accV
-                        | false ->               accV
+                        match hasNeighborDown with
+                        | false -> (k,v |> fst)::accV
+                        | true  ->               accV
                     ))
                 Map.foldBack f (State.pieces st) ([],[])
 
+            let canDoMove (p: Map<coord, (char * int)>) (move: (coord * (uint32 * (char * int))) list) =
+                
+                // Does it intersect with existing pieces?
+                let checkOverlap m =
+                    let coords = List.map (fun (xy,_) -> xy) m
+                    let f acc xy =
+                        match acc with
+                        | false -> false
+                        | true  -> not (Map.containsKey xy p)
+                    match List.fold f true coords with
+                    | true  -> Some m
+                    | false -> None
+                
+                // Does it create invalid words in with neighbor pieces?
+                
+                let performMove ps ms =
+                    let placePieces p' (co: coord, (_,(piece: char * int))) =
+                        Map.add co piece p'
+                    List.fold (fun p' m -> placePieces p' m) ps ms
+                
+                let checkWords travelBack travelForward p' m =
+                    let rec furthestLeftCoord pos =
+                        let prevNeighborCoord = travelBack pos
+                        match Map.containsKey prevNeighborCoord p' with
+                        | true  -> furthestLeftCoord prevNeighborCoord
+                        | false -> pos
+                    let rec word (acc: string, pos) =
+                        match Map.tryFind pos p' with
+                        | None       -> acc
+                        | Some (c:char,_) -> word (acc + string c, travelForward pos)
+                    
+                    let f acc (xy:coord,_) = // Checks if a valid word is created with by the piece at `xy`
+                        match acc with
+                        | false -> false
+                        | true  -> 
+                            let w = word ("", furthestLeftCoord xy)
+                            match String.length w with
+                            | 1 -> true // Don't check single letters
+                            | _ ->
+                                debugPrint (sprintf "            └─> check word: %A\n" w)
+                                Dictionary.lookup (w) (State.dict st)
+                    match List.fold f true m with
+                        | false -> None
+                        | true  -> Some m
 
-            let listToMoveHorizontal (start: coord) word =
+                debugPrint (sprintf "            └─> overlap: %A\n" (checkOverlap move))
+                match checkOverlap move with
+                | None   -> None // Invalid, evaluate none
+                | Some m ->      // No overlap, continue
+                    let p' = performMove p m
+                    let checkWordsHorizontal =
+                        checkWords
+                            (fun xy -> (Coord.mkCoordinate ((Coord.getX xy) - 1) (Coord.getY xy)))
+                            (fun xy -> (Coord.mkCoordinate ((Coord.getX xy) + 1) (Coord.getY xy)))
+                            p'
+                    let checkWordsVertical =
+                        checkWords
+                            (fun xy -> (Coord.mkCoordinate (Coord.getX xy) ((Coord.getY xy) - 1)))
+                            (fun xy -> (Coord.mkCoordinate (Coord.getX xy) ((Coord.getY xy) + 1)))
+                            p'
+
+                    match checkWordsHorizontal m with
+                    | None   -> None
+                    | Some m -> checkWordsVertical m
+
+
+            let wordToMoveHorizontal offset (start: coord) word =
                 let f i p =
-                    (*                            coord                              * (uint32 *      (char * int)           *)
-                    ((Coord.mkCoordinate ((Coord.getX start) + i) (Coord.getY start)), (p, (Map.find p pieces).MinimumElement))
+                    (*                                 coord                                  * (uint32 *      (char * int)           *)
+                    ((Coord.mkCoordinate ((Coord.getX start) + offset + i) (Coord.getY start)), (p, (Map.find p pieces).MinimumElement))
                 List.mapi f word
 
-            let listToMoveVertical (start: coord) word =
+            let wordToMoveVertical offset (start: coord) word =
                 let f i p =
-                    (*                            coord                              * (uint32 *      (char * int)           *)
-                    ((Coord.mkCoordinate (Coord.getX start) ((Coord.getY start) + i)), (p, (Map.find p pieces).MinimumElement))
+                    (*                                 coord                                  * (uint32 *      (char * int)           *)
+                    ((Coord.mkCoordinate (Coord.getX start) ((Coord.getY start) + offset + i)), (p, (Map.find p pieces).MinimumElement))
                 List.mapi f word
 
             // Main part
+            debugPrint (System.Console.ReadLine())
+
+            Print.printHand pieces (State.hand st)
+
+
             let move: (coord * (uint32 * (char * int))) list option =        
                 match isFirstMove (State.pieces st) with
                 | true  -> // This is the first move
                     // Find valid word only from hand
-                    let f acc p _ =
-                        match acc with
-                        | Some w -> Some w // We already found a word. Use that
-                        | None   -> validWord p (MultiSet.removeSingle p (State.hand st)) // Try to find word
-                    let word = MultiSet.fold f None (State.hand st)
+                    let word = validWord (State.hand st) (State.dict st)
                     match word with
                     | None   -> None // Do nothing (change pieces)
-                    | Some w -> Some (listToMoveHorizontal (State.board st).center w) // Play word horizontally
-                | false -> // This is not the first move
-                    None
+                    | Some w -> Some (wordToMoveHorizontal 0 (State.board st).center w) // Play word horizontally
+                    
+                | false -> // This is *not* the first move
+                    debugPrint "=======> Not first move\n"
+                    let (hStartPositions, vStartPositions) = findStartPositions st
+                    debugPrint (sprintf "└─> hStart: %A\n    vStart: %A\n" hStartPositions vStartPositions)
+                    let f wordToMove acc (pos, c : char) = // Can we place the word?
+                        match acc with
+                        | Some m -> Some m
+                        | None   ->
+                            finishWord c (State.hand st)
+                            |> function
+                               | None    -> None
+                               | Some w  -> 
+                                    debugPrint (sprintf "    └─> pos: %A\n" pos)
+                                    let move = wordToMove pos w
+                                    debugPrint (sprintf "        └─> move: %A\n" (wordToMove pos w))
+                                    let valid = move |> canDoMove (State.pieces st)
+                                    debugPrint (sprintf "            └─> valid: %A\n" valid)
+                                    valid
+                    match List.fold (f (wordToMoveHorizontal 1)) None hStartPositions with
+                    | Some m -> Some m
+                    | None   -> List.fold (f (wordToMoveVertical 1)) None vStartPositions
+
 
             debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
             // Send move to server. This could also be other types of move such as SMChange.
