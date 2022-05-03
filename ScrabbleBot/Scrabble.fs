@@ -84,6 +84,9 @@ module Scrabble =
         let removeFromHand (_,((id: uint32),_)) st =
             st |> State.withHand (MultiSet.removeSingle id (State.hand st))
 
+        let emptyHand st =
+            st |> State.withHand MultiSet.empty
+
         let addToHand (id,n) st =
             st |> State.withHand (MultiSet.add id n (State.hand st))
 
@@ -239,7 +242,7 @@ module Scrabble =
                 List.mapi f word
 
             // Main part
-            debugPrint (System.Console.ReadLine())
+            // System.Console.ReadLine() |> ignore
 
             Print.printHand pieces (State.hand st)
 
@@ -274,12 +277,13 @@ module Scrabble =
                     match List.fold (f (wordToMoveHorizontal 1)) None hStartPositions with
                     | Some m -> Some m
                     | None   -> List.fold (f (wordToMoveVertical 1)) None vStartPositions
+                    
 
 
             debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
             // Send move to server. This could also be other types of move such as SMChange.
             match move with
-            | None   -> send cstream (SMPlay []) // Replace with change all pieces
+            | None   -> send cstream (SMChange (st |> State.hand |> MultiSet.toList)) // Replace with change all pieces
             | Some m -> send cstream (SMPlay m)
             
             move
@@ -304,7 +308,7 @@ module Scrabble =
 
             // Handle the response from the server.
             match msg with
-            | RCM (CMPlaySuccess(ms, points, newPieces)) ->
+            | RCM (CMPlaySuccess(ms, _, newPieces)) ->
                 debugPrint "====> PLAY SUCCESS\n"
                 (* Successful play by you. Update your state (remove old tiles, add the new ones, change turn, etc) *)
                 // Place pieces on board
@@ -326,7 +330,7 @@ module Scrabble =
                 aux st'
 
 
-            | RCM (CMPlayed (pid, ms, points)) ->
+            | RCM (CMPlayed (pid, ms, _)) ->
                 debugPrint "====> PLAYED\n"
                 (* Successful play by other player. Update your state *)
                 // Place tiles on board
@@ -340,9 +344,35 @@ module Scrabble =
                 aux st'
 
 
-            | RCM (CMPlayFailed (pid, ms)) ->
+            | RCM (CMPlayFailed (pid, _)) ->
                 debugPrint "====> PLAY FAILED\n"
                 (* Failed play. Update your state *)
+                // Only update turn
+                let updateTurn st = st
+                                    |> nextTurn pid
+                let st' = st |> updateTurn
+                aux st'
+            
+
+            | RCM (CMChangeSuccess (newPieces)) ->
+                debugPrint "====> CHANGE SUCCESS\n"
+                (* Successful change by you. *)
+                // Remove pieces from hand
+                // Add new pieces to hand
+                let addNewTilesToHand st =
+                    List.fold (fun s np -> s
+                                        |> addToHand np // add piece(s) to hand
+                    ) st newPieces
+                let updateTurn st = st
+                                    |> nextTurn (State.playerNumber st) // We know we made this move
+                // Combine to update state
+                let st' = st |> emptyHand |> addNewTilesToHand |> updateTurn
+                aux st'
+
+
+            | RCM (CMChange (pid, _)) ->
+                debugPrint "====> CHANGE\n"
+                (* Successgul chenge by other player. *)
                 // Only update turn
                 let updateTurn st = st
                                     |> nextTurn pid
