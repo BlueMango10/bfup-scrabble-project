@@ -26,10 +26,10 @@
 7. ~~Using the previously defined functions to find a valid place to start a word, then finding a word using that start letter which fits in that position.~~
 8. ~~Fix the function from step 5 to check all other words created as a consequence of the placement.~~
 9. Support all client messages.
-10. Change all pieces in hand if no moves were found.
-11. Make sure it plays nicely with other bots `:)`
-12. **At this point we should be satisfying the project requirements.**
-13. Make it so we do multiple attempts at each start postion.
+10. ~~Change all pieces in hand if no moves were found.~~
+11. ~~Make sure it plays nicely with other bots `:)`~~
+12. Make it so we do multiple attempts at each start postion.
+13. **At this point we should be satisfying the project requirements.**
 
 ## Algoritm approach
 
