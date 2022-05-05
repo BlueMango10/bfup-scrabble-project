@@ -138,6 +138,34 @@ module Scrabble =
                     | None   -> aux p ([], dict, MultiSet.removeSingle p hand)
                 MultiSet.fold f None (State.hand st)
 
+            /// `validWord` but as a sequence so we can get multiple options to choose from
+            let validWordSeq hand dict : uint32 list seq =
+                //seq { for x in 1u..10u -> Some [x]}
+                let rec aux (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list option =
+                    let (c,_) = (Map.find p pieces).MinimumElement // Get a character from tile (We treat blank tiles as A by doing it this way)
+                    let nextDict = Dictionary.step c d
+                    match nextDict with
+                    | None -> None // We did not find a word on this path
+                    | Some (b', d') ->
+                        let nextWord = w @ [p] // Current word + the character we searched for
+                        match b' with
+                        | true  -> Some nextWord // This is the end of a word. Use this word
+                        | false -> // Not end of word. Continue search
+                            let f acc p _ =
+                                match acc with
+                                | Some w -> Some w // We already found a word. Use that
+                                | None   -> aux p (nextWord, d', MultiSet.removeSingle p h) // Try to find word
+                            MultiSet.fold f None h
+
+                seq { // This sequence yelds the results from starting at each letter in the hand
+                    for p in MultiSet.toList hand do
+                        let word = aux p ([], dict, MultiSet.removeSingle p hand)
+                        if word.IsSome then
+                            match aux p ([], dict, MultiSet.removeSingle p hand) with
+                            | None   -> ignore()
+                            | Some w -> yield w
+                }
+
             /// Returns the first valid continuation from `start` using the letters from `hand`
             /// (*not* including the first letter `start`)
             let finishWord (start: char) hand : uint32 list option =
@@ -145,6 +173,13 @@ module Scrabble =
                 match initialDict with
                     | None          -> None
                     | Some (_,dict) -> validWord hand dict
+            
+            /// `finishWord` but as a sequence so we can get multiple options to choose from
+            let finishWordSeq (start: char) hand : uint32 list seq =
+                let initialDict = Dictionary.step start (State.dict st)
+                match initialDict with
+                    | None -> Seq.empty
+                    | Some (_,dict) -> validWordSeq hand dict
             
             let isFirstMove (p: Map<coord, (char * int)>): bool = Map.isEmpty p
 
@@ -242,7 +277,17 @@ module Scrabble =
                 List.mapi f word
 
             // Main part
-            // System.Console.ReadLine() |> ignore
+            //System.Console.ReadLine() |> ignore
+            let wordToString w =
+                let idToChar p = (Map.find p pieces).MinimumElement |> fst
+                let f acc p = acc + string (idToChar p)
+                List.fold f "" w
+            debugPrint (sprintf "=======> Nr Of Words %A\n" (Seq.length (validWordSeq (State.hand st) (State.dict st))))
+            Seq.iter
+                (fun w -> debugPrint(sprintf "========> Found word: %A\n" (wordToString w)))
+                (validWordSeq (State.hand st) (State.dict st))
+            
+            System.Console.ReadLine() |> ignore
 
             Print.printHand pieces (State.hand st)
 
