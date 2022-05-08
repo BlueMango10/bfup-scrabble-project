@@ -91,55 +91,11 @@ module Scrabble =
             st |> State.withHand (MultiSet.add id n (State.hand st))
 
 
-        // Remove when bot works :)
-        let doMoveHuman st =
-            Print.printHand pieces (State.hand st)
 
-            // remove the force print when you move on from manual input (or when you have learnt the format)
-            forcePrint "Input move (format '(<x-coordinate> <y-coordinate> <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
-            // This is the part where the move is defined:
-            (*
-                This part will be replaced with our move-finding algorithm.
-                The result will be stored in the `move` variable.
-            *)
-            let input =  System.Console.ReadLine() // Human input
-            let move = RegEx.parseMove input // Input parsed into an actual move
-
-            debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
-            // Send move to server. This could also be other types of move such as SMChange.
-            send cstream (SMPlay move)
-
-            move
-
-        // This is bot
         let doMove st =
 
-            /// Returns the virst valid word found in `dict` using the letters from `hand`
-            let validWord hand dict : uint32 list option =
-                let rec aux (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list option =
-                    let (c,_) = (Map.find p pieces).MinimumElement // Get a character from tile (We treat blank tiles as A by doing it this way)
-                    let nextDict = Dictionary.step c d
-                    match nextDict with
-                    | None -> None // We did not find a word on this path
-                    | Some (b', d') ->
-                        let nextWord = w @ [p] // Current word + the character we searched for
-                        match b' with
-                        | true  -> Some nextWord // This is the end of a word. Use this word
-                        | false -> // Not end of word. Continue search
-                            let f acc p _ =
-                                match acc with
-                                | Some w -> Some w // We already found a word. Use that
-                                | None   -> aux p (nextWord, d', MultiSet.removeSingle p h) // Try to find word
-                            MultiSet.fold f None h
-
-                let f acc p _ = // Find initial character to use from hand
-                    match acc with
-                    | Some w -> Some w
-                    | None   -> aux p ([], dict, MultiSet.removeSingle p hand)
-                MultiSet.fold f None (State.hand st)
-
             /// Returns a sequence of valid words found in `dict` using the letters from `hand`
-            let validWordSeq hand dict : uint32 list seq =
+            let validWordSeq hand dict n : uint32 list seq =
                 let rec aux (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list option =
                     let (c,_) = (Map.find p pieces).MinimumElement // Get a character from tile (We treat blank tiles as A by doing it this way)
                     let nextDict = Dictionary.step c d
@@ -172,24 +128,16 @@ module Scrabble =
 
                 seq {
                     for p in MultiSet.toList hand do
-                        yield! auxSeq p ([], dict, MultiSet.removeSingle p hand)
+                        yield! auxSeq p ([], dict, MultiSet.removeSingle p hand) |> Seq.truncate n
                 }
 
             /// Returns the first valid continuation from `start` using the letters from `hand`
-            /// (*not* including the first letter `start`)
-            let finishWord (start: char) hand : uint32 list option =
-                let initialDict = Dictionary.step start (State.dict st)
-                match initialDict with
-                    | None          -> None
-                    | Some (_,dict) -> validWord hand dict
-            
-            /// Returns the first valid continuation from `start` using the letters from `hand`
             /// (continuations do *not* include the first letter `start`)
-            let finishWordSeq (start: char) hand : uint32 list seq =
+            let finishWordSeq (start: char) hand n : uint32 list seq =
                 let initialDict = Dictionary.step start (State.dict st)
                 match initialDict with
                     | None -> Seq.empty
-                    | Some (_,dict) -> validWordSeq hand dict
+                    | Some (_,dict) -> (validWordSeq hand dict) n
             
             let isFirstMove (p: Map<coord, (char * int)>): bool = Map.isEmpty p
 
@@ -299,7 +247,7 @@ module Scrabble =
                 match isFirstMove (State.pieces st) with
                 | true  -> // This is the first move
                     // Find valid word only from hand
-                    let validWords = validWordSeq (State.hand st) (State.dict st)
+                    let validWords = validWordSeq (State.hand st) (State.dict st) 100
                     match Seq.isEmpty validWords with
                     | true  -> None // Do nothing (change pieces)
                     | false ->
@@ -317,7 +265,8 @@ module Scrabble =
                         | Some m -> Some m
                         | None   ->
                             debugPrint (sprintf "    └─> pos: %A\n" pos)
-                            let wordSeq = finishWordSeq c (State.hand st)
+                            let maxWordsPerPos = 5
+                            let wordSeq = finishWordSeq c (State.hand st) maxWordsPerPos
                             let moveSeq = Seq.map (fun w -> wordToMove pos w) wordSeq // Convert words to moves starting at `pos`
                             Seq.tryFind (fun m -> Option.isSome (canDoMove (State.pieces st) m)) moveSeq
                     
@@ -428,7 +377,16 @@ module Scrabble =
 
             | RCM (CMGameOver _) -> ()
             | RCM a -> failwith (sprintf "not implmented: %A" a)
-            | RGPE err -> printfn "Gameplay Error:\n%A" err; aux st
+            | RGPE err -> 
+                debugPrint "====> GAMEPLAY ERROR"
+                let f e = 
+                    match e with
+                    | GPENotEnoughPieces (_, n) ->
+                        send cstream (SMChange (st |> State.hand |> MultiSet.toList |> List.take (int n)))
+                    | _ ->
+                        printfn "Gameplay Error:\n%A" err;
+                List.iter f err
+                aux st
 
 
         aux st
