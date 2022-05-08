@@ -286,10 +286,12 @@ module Scrabble =
                 match isFirstMove (State.pieces st) with
                 | true  -> // This is the first move
                     // Find valid word only from hand
-                    let word = validWord (State.hand st) (State.dict st)
-                    match word with
-                    | None   -> None // Do nothing (change pieces)
-                    | Some w -> Some (wordToMoveHorizontal 0 (State.board st).center w) // Play word horizontally
+                    let validWords = validWordSeq (State.hand st) (State.dict st)
+                    match Seq.isEmpty validWords with
+                    | true  -> None // Do nothing (change pieces)
+                    | false ->
+                        let w = Seq.head validWords 
+                        Some (wordToMoveHorizontal 0 (State.board st).center w) // Play word horizontally
                     
                 | false -> // This is *not* the first move
                     debugPrint "=======> Not first move\n"
