@@ -140,30 +140,39 @@ module Scrabble =
 
             /// Returns a sequence of valid words found in `dict` using the letters from `hand`
             let validWordSeq hand dict : uint32 list seq =
-                //seq { for x in 1u..10u -> Some [x]}
                 let rec aux (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list option =
                     let (c,_) = (Map.find p pieces).MinimumElement // Get a character from tile (We treat blank tiles as A by doing it this way)
                     let nextDict = Dictionary.step c d
                     match nextDict with
                     | None -> None // We did not find a word on this path
                     | Some (b', d') ->
-                        let nextWord = w @ [p] // Current word + the character we searched for
+                        let currentWord = w @ [p] // Current word + the character we searched for
                         match b' with
-                        | true  -> Some nextWord // This is the end of a word. Use this word
+                        | true  -> Some currentWord // This is the end of a word. Use this word
                         | false -> // Not end of word. Continue search
                             let f acc p _ =
                                 match acc with
                                 | Some w -> Some w // We already found a word. Use that
-                                | None   -> aux p (nextWord, d', MultiSet.removeSingle p h) // Try to find word
+                                | None   -> aux p (currentWord, d', MultiSet.removeSingle p h) // Try to find word
                             MultiSet.fold f None h
+                
+                let rec auxSeq (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list seq =
+                    let (c,_) = (Map.find p pieces).MinimumElement // Get a character from tile (We treat blank tiles as A by doing it this way)
+                    let nextDict = Dictionary.step c d
+                    match nextDict with
+                    | None -> Seq.empty // We did not find a word on this path
+                    | Some (b', d') ->
+                        let currentWord = w @ [p] // Current word + the character we searched for
+                        debugPrint (sprintf "        └─> word: \"%A\"\n            └─> hand: %A\n" (List.map (fun p -> (Map.find p pieces).MinimumElement |> fst) currentWord) (MultiSet.map (fun p -> (Map.find p pieces).MinimumElement |> fst) h))
+                        seq {
+                            for p in MultiSet.toList h do // toList is not ideal, but our multiset does not have a way to be iterated as a sequence :(
+                                if b' then yield currentWord // Yield if this is a word
+                                yield! auxSeq p (currentWord, d', MultiSet.removeSingle p h) // Continue search
+                        }
 
-                seq { // This sequence yelds the results from starting at each letter in the hand
+                seq {
                     for p in MultiSet.toList hand do
-                        let word = aux p ([], dict, MultiSet.removeSingle p hand)
-                        if word.IsSome then
-                            match aux p ([], dict, MultiSet.removeSingle p hand) with
-                            | None   -> ignore()
-                            | Some w -> yield w
+                        yield! auxSeq p ([], dict, MultiSet.removeSingle p hand)
                 }
 
             /// Returns the first valid continuation from `start` using the letters from `hand`
@@ -244,7 +253,7 @@ module Scrabble =
                         | false -> None
                         | true  -> Some m
 
-                debugPrint (sprintf "            └─> overlap: %A\n" (checkOverlap move))
+                debugPrint (sprintf "            └─> overlap: %A\n" (Option.isNone (checkOverlap move)))
                 match checkOverlap move with
                 | None   -> None // Invalid, evaluate none
                 | Some m ->      // No overlap, continue
@@ -277,10 +286,13 @@ module Scrabble =
                     ((Coord.mkCoordinate (Coord.getX start) ((Coord.getY start) + offset + i)), (p, (Map.find p pieces).MinimumElement))
                 List.mapi f word
 
-            // Main part            
-            System.Console.ReadLine() |> ignore
 
-            Print.printHand pieces (State.hand st)
+
+
+            // Main part            
+            //System.Console.ReadLine() |> ignore
+
+            //Print.printHand pieces (State.hand st)
 
 
             let move: (coord * (uint32 * (char * int))) list option =        
