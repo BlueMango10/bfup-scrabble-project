@@ -138,7 +138,7 @@ module Scrabble =
                     | None   -> aux p ([], dict, MultiSet.removeSingle p hand)
                 MultiSet.fold f None (State.hand st)
 
-            /// `validWord` but as a sequence so we can get multiple options to choose from
+            /// Returns a sequence of valid words found in `dict` using the letters from `hand`
             let validWordSeq hand dict : uint32 list seq =
                 //seq { for x in 1u..10u -> Some [x]}
                 let rec aux (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list option =
@@ -174,7 +174,8 @@ module Scrabble =
                     | None          -> None
                     | Some (_,dict) -> validWord hand dict
             
-            /// `finishWord` but as a sequence so we can get multiple options to choose from
+            /// Returns the first valid continuation from `start` using the letters from `hand`
+            /// (continuations do *not* include the first letter `start`)
             let finishWordSeq (start: char) hand : uint32 list seq =
                 let initialDict = Dictionary.step start (State.dict st)
                 match initialDict with
