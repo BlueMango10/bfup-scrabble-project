@@ -42,33 +42,44 @@ module State =
     // information, such as number of players, player turn, etc.
 
     type state = {
-        board         : Parser.board
-        dict          : ScrabbleUtil.Dictionary.Dict
-        playerNumber  : uint32
-        hand          : MultiSet.MultiSet<uint32>
-        pieces        : Map<coord, (char * int)>
-        totalPlayers  : uint32
-        turn          : uint32
+        board          : Parser.board
+        dict           : Dictionary.Dict
+        playerNumber   : uint32
+        hand           : MultiSet.MultiSet<uint32>
+        pieces         : Map<coord, (char * int)>
+        totalPlayers   : uint32
+        turn           : uint32
+        droppedPlayers : Set<uint32> // Players who has left the game
     }
 
-    let mkState b d pn h p tp t =
-        {board = b; dict = d;  playerNumber = pn; hand = h; pieces = p; totalPlayers = tp; turn = t;}
+    let mkState b d pn h p tp t dp = {
+        board = b;
+        dict = d;
+        playerNumber = pn;
+        hand = h;
+        pieces = p;
+        totalPlayers = tp;
+        turn = t;
+        droppedPlayers = dp;
+    }
 
-    let board st         = st.board
-    let dict st          = st.dict
-    let playerNumber st  = st.playerNumber
-    let hand st          = st.hand
-    let pieces st        = st.pieces
-    let totalPlayers st  = st.totalPlayers
-    let turn st          = st.turn
+    let board st          = st.board
+    let dict st           = st.dict
+    let playerNumber st   = st.playerNumber
+    let hand st           = st.hand
+    let pieces st         = st.pieces
+    let totalPlayers st   = st.totalPlayers
+    let turn st           = st.turn
+    let droppedPlayers st = st.droppedPlayers
 
-    let withBoard b st         = {st with board = b}
-    let withDict d st          = {st with dict = d}
-    let withPlayerNumber pn st = {st with playerNumber = pn}
-    let withHand h st          = {st with hand = h}
-    let withPieces p st        = {st with pieces = p}
-    let withTotalPlayers tp st = {st with totalPlayers = tp}
-    let withTurn t st          = {st with turn = t}
+    let withBoard b st           = {st with board = b}
+    let withDict d st            = {st with dict = d}
+    let withPlayerNumber pn st   = {st with playerNumber = pn}
+    let withHand h st            = {st with hand = h}
+    let withPieces p st          = {st with pieces = p}
+    let withTotalPlayers tp st   = {st with totalPlayers = tp}
+    let withTurn t st            = {st with turn = t}
+    let withDroppedPlayers dp st = {st with droppedPlayers = dp}
 
 module Scrabble =
     open System.Threading
@@ -76,7 +87,12 @@ module Scrabble =
     let playGame cstream (pieces : Map<uint32,tile>) (st : State.state) =
 
         let nextTurn t st =
-            st |> State.withTurn ((t % (State.totalPlayers st)) + 1u) // IDs start from 1
+            let rec aux t' =
+                match (t' % (State.totalPlayers st)) + 1u with // IDs start from 1
+                | t'' when Set.contains t'' (State.droppedPlayers st) -> aux t''
+                | t'' -> t''
+            st |> State.withTurn (aux t)
+
 
         let placePieces (co: coord, (_,(piece: char * int))) st =
             st |> State.withPieces (Map.add co piece (State.pieces st))
@@ -265,7 +281,8 @@ module Scrabble =
                         | Some m -> Some m
                         | None   ->
                             debugPrint (sprintf "    └─> pos: %A\n" pos)
-                            let maxWordsPerPos = 5
+                            let maxWordsPerPos = 5 // We limit how many words we try to increase speed, but we could
+                                                   // check all options by changing this to infinity
                             let wordSeq = finishWordSeq c (State.hand st) maxWordsPerPos
                             let moveSeq = Seq.map (fun w -> wordToMove pos w) wordSeq // Convert words to moves starting at `pos`
                             Seq.tryFind (fun m -> Option.isSome (canDoMove (State.pieces st) m)) moveSeq
@@ -327,6 +344,7 @@ module Scrabble =
 
             | RCM (CMPlayed (pid, ms, _)) ->
                 debugPrint "====> PLAYED\n"
+                debugPrint (sprintf "play by: %A\n" pid)
                 (* Successful play by other player. Update your state *)
                 // Place tiles on board
                 let performMove st =
@@ -373,10 +391,47 @@ module Scrabble =
                                     |> nextTurn pid
                 let st' = st |> updateTurn
                 aux st'
+            
+
+            | RCM (CMPassed (pid)) ->
+                debugPrint "====> PASSED\n"
+                (* Other player passed. *)
+                // Only update turn
+                let updateTurn st = st
+                                    |> nextTurn pid
+                let st' = st |> updateTurn
+                aux st'
+            
+
+            | RCM (CMForfeit (pid)) ->
+                debugPrint "====> FORFEIT"
+                debugPrint(sprintf "forfeit by: %A\n" pid)
+                (* Other player forfeited *)
+                // Update dropped players
+                // Update turn.
+                debugPrint(sprintf "players: %A\n" (State.totalPlayers st))
+                let updateDroppedPlayers st =
+                    let dp = State.droppedPlayers st
+                    let newDp = Set.add pid dp
+                    st |> State.withDroppedPlayers newDp
+                let updateTurn st = st
+                                    |> nextTurn (pid)
+                let st' = st |> updateDroppedPlayers |> updateTurn
+                debugPrint(sprintf "players: %A\n" (State.totalPlayers st'))
+                aux st'
+            
+
+            | RCM (CMTimeout (pid)) ->
+                debugPrint "====> TIMEOUT\n"
+                (* Other player passed. *)
+                // Only update turn
+                let updateTurn st = st
+                                    |> nextTurn pid
+                let st' = st |> updateTurn
+                aux st'
 
 
             | RCM (CMGameOver _) -> ()
-            | RCM a -> failwith (sprintf "not implmented: %A" a)
             | RGPE err -> 
                 debugPrint "====> GAMEPLAY ERROR"
                 let f e = 
@@ -415,5 +470,5 @@ module Scrabble =
                   
         let handSet = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty hand
 
-        fun () -> playGame cstream tiles (State.mkState board dict playerNumber handSet Map.empty numPlayers playerTurn)
+        fun () -> playGame cstream tiles (State.mkState board dict playerNumber handSet Map.empty numPlayers playerTurn Set.empty)
         

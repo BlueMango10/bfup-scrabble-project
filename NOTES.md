@@ -28,8 +28,8 @@
 9. Support all client messages.
 10. ~~Change all pieces in hand if no moves were found.~~
 11. ~~Make sure it plays nicely with other bots `:)`~~
-12. Make it so we do multiple attempts at each start postion.
-13. **At this point we should be satisfying the project requirements.**
+12. ~~Make it so we do multiple attempts at each start postion.~~
+13. ~~**At this point we should be satisfying the project requirements.**~~
 
 ## Algoritm approach
 
