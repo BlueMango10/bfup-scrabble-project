@@ -276,17 +276,7 @@ module Scrabble =
                     ((Coord.mkCoordinate (Coord.getX start) ((Coord.getY start) + offset + i)), (p, (Map.find p pieces).MinimumElement))
                 List.mapi f word
 
-            // Main part
-            //System.Console.ReadLine() |> ignore
-            let wordToString w =
-                let idToChar p = (Map.find p pieces).MinimumElement |> fst
-                let f acc p = acc + string (idToChar p)
-                List.fold f "" w
-            debugPrint (sprintf "=======> Nr Of Words %A\n" (Seq.length (validWordSeq (State.hand st) (State.dict st))))
-            Seq.iter
-                (fun w -> debugPrint(sprintf "========> Found word: %A\n" (wordToString w)))
-                (validWordSeq (State.hand st) (State.dict st))
-            
+            // Main part            
             System.Console.ReadLine() |> ignore
 
             Print.printHand pieces (State.hand st)
@@ -303,22 +293,19 @@ module Scrabble =
                     
                 | false -> // This is *not* the first move
                     debugPrint "=======> Not first move\n"
+                    // Find positions we can start a word from
                     let (hStartPositions, vStartPositions) = findStartPositions st
                     debugPrint (sprintf "└─> hStart: %A\n    vStart: %A\n" hStartPositions vStartPositions)
-                    let f wordToMove acc (pos, c : char) = // Can we place the word?
+                        
+                    let f wordToMove acc (pos, c:char) =
                         match acc with
                         | Some m -> Some m
                         | None   ->
-                            finishWord c (State.hand st)
-                            |> function
-                               | None    -> None
-                               | Some w  -> 
-                                    debugPrint (sprintf "    └─> pos: %A\n" pos)
-                                    let move = wordToMove pos w
-                                    debugPrint (sprintf "        └─> move: %A\n" (wordToMove pos w))
-                                    let valid = move |> canDoMove (State.pieces st)
-                                    debugPrint (sprintf "            └─> valid: %A\n" valid)
-                                    valid
+                            debugPrint (sprintf "    └─> pos: %A\n" pos)
+                            let wordSeq = finishWordSeq c (State.hand st)
+                            let moveSeq = Seq.map (fun w -> wordToMove pos w) wordSeq // Convert words to moves starting at `pos`
+                            Seq.tryFind (fun m -> Option.isSome (canDoMove (State.pieces st) m)) moveSeq
+                    
                     match List.fold (f (wordToMoveHorizontal 1)) None hStartPositions with
                     | Some m -> Some m
                     | None   -> List.fold (f (wordToMoveVertical 1)) None vStartPositions
@@ -326,9 +313,8 @@ module Scrabble =
 
 
             debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
-            // Send move to server. This could also be other types of move such as SMChange.
             match move with
-            | None   -> send cstream (SMChange (st |> State.hand |> MultiSet.toList)) // Replace with change all pieces
+            | None   -> send cstream (SMChange (st |> State.hand |> MultiSet.toList))
             | Some m -> send cstream (SMPlay m)
             
             move
