@@ -83,7 +83,7 @@ module State =
 
 module Scrabble =
     open System.Threading
-    type letter = uint32 * (char * int)
+    type letter = uint32 * (char * int) // Used to represent both the tile and the id of a piece
     type internal msetHand = MultiSet.MultiSet<uint32>
     type internal explHand = MultiSet.MultiSet<letter>
 
@@ -133,7 +133,7 @@ module Scrabble =
             /// Returns a sequence of valid words found in `dict` using the letters from `hand`
             let validWordSeq hand dict n : letter list seq =
                 let rec auxSeq (p: letter) (w: letter list, d: Dictionary.Dict, h: explHand): letter list seq =
-                    let (_,(c,_)) = p // Get a character from tile (We treat blank tiles as A by doing it this way)
+                    let (_,(c,_)) = p // Extract the char from the letter
                     let nextDict = Dictionary.step c d
                     match nextDict with
                     | None -> Seq.empty // We did not find a word on this path
@@ -244,13 +244,11 @@ module Scrabble =
 
             let wordToMoveHorizontal offset (start: coord) word =
                 let f i (p: letter) =
-                    (*                                 coord                                  * (uint32 *      (char * int)           *)
                     ((Coord.mkCoordinate ((Coord.getX start) + offset + i) (Coord.getY start)), p)
                 List.mapi f word
 
             let wordToMoveVertical offset (start: coord) word =
                 let f i (p: letter) =
-                    (*                                 coord                                  * (uint32 *      (char * int)           *)
                     ((Coord.mkCoordinate (Coord.getX start) ((Coord.getY start) + offset + i)), p)
                 List.mapi f word
 
