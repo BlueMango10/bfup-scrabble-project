@@ -27,7 +27,7 @@ let main argv =
     System.Console.Clear()
 
 
-//    let board        = ScrabbleUtil.StandardBoard.standardBoard ()
+//    let board       = ScrabbleUtil.StandardBoard.standardBoard ()
     let board      = ScrabbleUtil.InfiniteBoard.infiniteBoard ()
 
 //    let board      = ScrabbleUtil.RandomBoard.randomBoard ()
@@ -56,8 +56,8 @@ let main argv =
         time (fun () -> ScrabbleUtil.Dictionary.mkDict words dictAPI)
 
     //let players    = [("CIIVLBot", dictionary, CIIVLBot.Scrabble.startGame)]
-    let players    = [("CIIVLBot", dictionary, CIIVLBot.Scrabble.startGame);("OxyphenButazone", dictionary, Oxyphenbutazone.Scrabble.startGame);]
-    //let players = spawnMultiples "CIIVLBot" dictionary CIIVLBot.Scrabble.startGame 4
+    //let players    = [("CIIVLBot", dictionary, CIIVLBot.Scrabble.startGame);("OxyphenButazone", dictionary, Oxyphenbutazone.Scrabble.startGame);]
+    let players = spawnMultiples "CIIVLBot" dictionary CIIVLBot.Scrabble.startGame 4
     //let players = spawnMultiples "OxyphenButazone" dictionary Oxyphenbutazone.Scrabble.startGame 4
 
 

@@ -83,6 +83,9 @@ module State =
 
 module Scrabble =
     open System.Threading
+    type letter = uint32 * (char * int)
+    type internal msetHand = MultiSet.MultiSet<uint32>
+    type internal explHand = MultiSet.MultiSet<letter>
 
     let playGame cstream (pieces : Map<uint32,tile>) (st : State.state) =
 
@@ -107,49 +110,50 @@ module Scrabble =
             st |> State.withHand (MultiSet.add id n (State.hand st))
 
 
+        let explodeTile id = Map.find id pieces |> Set.toList |> List.map (fun t' -> (id, t'))
+        
+        // We use this to turn the hands into all the possible letters to choose from in the hand
+        // This is needed to handle blank pieces
+        let explodeHand (hand: msetHand): explHand =
+            let f mset id n =
+                let explodedTile = explodeTile id
+                List.fold (fun s l -> MultiSet.add l n s) mset explodedTile
+            MultiSet.fold f MultiSet.empty hand
+
+        let removeFromExplodedHand ((id,(c,v)) as l: letter) (hand: explHand) =
+            // We want to remove all parts of the explodede hand which partially represent the letter.
+            // To do this, we look up the full tile for the letter using the id, and remove one
+            // instance of every form of it.
+            let fullTile = explodeTile id
+            List.fold (fun mset p -> MultiSet.removeSingle p mset) hand fullTile
+
 
         let doMove st =
 
             /// Returns a sequence of valid words found in `dict` using the letters from `hand`
-            let validWordSeq hand dict n : uint32 list seq =
-                let rec aux (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list option =
-                    let (c,_) = (Map.find p pieces).MinimumElement // Get a character from tile (We treat blank tiles as A by doing it this way)
-                    let nextDict = Dictionary.step c d
-                    match nextDict with
-                    | None -> None // We did not find a word on this path
-                    | Some (b', d') ->
-                        let currentWord = w @ [p] // Current word + the character we searched for
-                        match b' with
-                        | true  -> Some currentWord // This is the end of a word. Use this word
-                        | false -> // Not end of word. Continue search
-                            let f acc p _ =
-                                match acc with
-                                | Some w -> Some w // We already found a word. Use that
-                                | None   -> aux p (currentWord, d', MultiSet.removeSingle p h) // Try to find word
-                            MultiSet.fold f None h
-                
-                let rec auxSeq (p: uint32) (w: uint32 list, d: Dictionary.Dict, h: MultiSet.MultiSet<uint32>): uint32 list seq =
-                    let (c,_) = (Map.find p pieces).MinimumElement // Get a character from tile (We treat blank tiles as A by doing it this way)
+            let validWordSeq hand dict n : letter list seq =
+                let rec auxSeq (p: letter) (w: letter list, d: Dictionary.Dict, h: explHand): letter list seq =
+                    let (_,(c,_)) = p // Get a character from tile (We treat blank tiles as A by doing it this way)
                     let nextDict = Dictionary.step c d
                     match nextDict with
                     | None -> Seq.empty // We did not find a word on this path
                     | Some (b', d') ->
                         let currentWord = w @ [p] // Current word + the character we searched for
-                        debugPrint (sprintf "        └─> word: \"%A\"\n            └─> hand: %A\n" (List.map (fun p -> (Map.find p pieces).MinimumElement |> fst) currentWord) (MultiSet.map (fun p -> (Map.find p pieces).MinimumElement |> fst) h))
+                        debugPrint (sprintf "        └─> word: \"%A\"\n            └─> hand: %A\n" (List.map (fun (id,(c,_)) -> (id,c)) currentWord) (MultiSet.map (fun (id,(c,_)) -> (id,c)) h))
                         seq {
                             for p in MultiSet.toList h do // toList is not ideal, but our multiset does not have a way to be iterated as a sequence :(
                                 if b' then yield currentWord // Yield if this is a word
-                                yield! auxSeq p (currentWord, d', MultiSet.removeSingle p h) // Continue search
+                                yield! auxSeq p (currentWord, d', removeFromExplodedHand p h) // Continue search
                         }
 
                 seq {
                     for p in MultiSet.toList hand do
-                        yield! auxSeq p ([], dict, MultiSet.removeSingle p hand) |> Seq.truncate n
+                        yield! auxSeq p ([], dict, removeFromExplodedHand p hand) |> Seq.truncate n
                 }
 
             /// Returns the first valid continuation from `start` using the letters from `hand`
             /// (continuations do *not* include the first letter `start`)
-            let finishWordSeq (start: char) hand n : uint32 list seq =
+            let finishWordSeq (start: char) hand n : letter list seq =
                 let initialDict = Dictionary.step start (State.dict st)
                 match initialDict with
                     | None -> Seq.empty
@@ -239,15 +243,15 @@ module Scrabble =
 
 
             let wordToMoveHorizontal offset (start: coord) word =
-                let f i p =
+                let f i (p: letter) =
                     (*                                 coord                                  * (uint32 *      (char * int)           *)
-                    ((Coord.mkCoordinate ((Coord.getX start) + offset + i) (Coord.getY start)), (p, (Map.find p pieces).MinimumElement))
+                    ((Coord.mkCoordinate ((Coord.getX start) + offset + i) (Coord.getY start)), p)
                 List.mapi f word
 
             let wordToMoveVertical offset (start: coord) word =
-                let f i p =
+                let f i (p: letter) =
                     (*                                 coord                                  * (uint32 *      (char * int)           *)
-                    ((Coord.mkCoordinate (Coord.getX start) ((Coord.getY start) + offset + i)), (p, (Map.find p pieces).MinimumElement))
+                    ((Coord.mkCoordinate (Coord.getX start) ((Coord.getY start) + offset + i)), p)
                 List.mapi f word
 
 
@@ -259,11 +263,11 @@ module Scrabble =
             //Print.printHand pieces (State.hand st)
 
 
-            let move: (coord * (uint32 * (char * int))) list option =        
+            let move: (coord * letter) list option =        
                 match isFirstMove (State.pieces st) with
                 | true  -> // This is the first move
                     // Find valid word only from hand
-                    let validWords = validWordSeq (State.hand st) (State.dict st) 100
+                    let validWords = validWordSeq (State.hand st |> explodeHand) (State.dict st) 100
                     match Seq.isEmpty validWords with
                     | true  -> None // Do nothing (change pieces)
                     | false ->
@@ -283,7 +287,7 @@ module Scrabble =
                             debugPrint (sprintf "    └─> pos: %A\n" pos)
                             let maxWordsPerPos = 5 // We limit how many words we try to increase speed, but we could
                                                    // check all options by changing this to infinity
-                            let wordSeq = finishWordSeq c (State.hand st) maxWordsPerPos
+                            let wordSeq = finishWordSeq c (State.hand st |> explodeHand) maxWordsPerPos
                             let moveSeq = Seq.map (fun w -> wordToMove pos w) wordSeq // Convert words to moves starting at `pos`
                             Seq.tryFind (fun m -> Option.isSome (canDoMove (State.pieces st) m)) moveSeq
                     
