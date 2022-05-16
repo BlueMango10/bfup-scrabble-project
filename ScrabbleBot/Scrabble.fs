@@ -86,6 +86,7 @@ module Scrabble =
     type letter = uint32 * (char * int) // Used to represent both the tile and the id of a piece
     type internal msetHand = MultiSet.MultiSet<uint32>
     type internal explHand = MultiSet.MultiSet<letter>
+    let PREFERRED_WORD_LENGTH = 3
 
     let playGame cstream (pieces : Map<uint32,tile>) (st : State.state) =
 
@@ -277,7 +278,7 @@ module Scrabble =
                     // Find positions we can start a word from
                     let (hStartPositions, vStartPositions) = findStartPositions st
                     debugPrint (sprintf "└─> hStart: %A\n    vStart: %A\n" hStartPositions vStartPositions)
-                        
+                    
                     let f wordToMove acc (pos, c:char) =
                         match acc with
                         | Some m -> Some m
@@ -287,7 +288,20 @@ module Scrabble =
                                                    // check all options by changing this to infinity
                             let wordSeq = finishWordSeq c (State.hand st |> explodeHand) maxWordsPerPos
                             let moveSeq = Seq.map (fun w -> wordToMove pos w) wordSeq // Convert words to moves starting at `pos`
-                            Seq.tryFind (fun m -> Option.isSome (canDoMove (State.pieces st) m)) moveSeq
+                            //let preferredWord = Seq.tryFind (fun m -> Option.isSome (canDoMove (State.pieces st) m)) moveSeq
+                            let canDoPreferredMove m =
+                                match m with
+                                | m when List.length m < PREFERRED_WORD_LENGTH -> false
+                                | m -> Option.isSome (canDoMove(State.pieces st) m)
+                            let preferredWord = Seq.tryFind canDoPreferredMove moveSeq
+                            match preferredWord with
+                            | Some w -> Some w
+                            | None   -> Seq.tryFind (fun m -> Option.isSome (canDoMove (State.pieces st) m)) moveSeq
+                            (*
+                                Doing the preferred move this way is very slow. It would be better to make some custom
+                                implementation of tryFind that also returns the first word we found, but this is a lot
+                                simpler.
+                            *)
                     
                     match List.fold (f (wordToMoveHorizontal 1)) None hStartPositions with
                     | Some m -> Some m
@@ -437,6 +451,12 @@ module Scrabble =
             | RGPE err -> 
                 debugPrint "====> GAMEPLAY ERROR"
                 let f e = 
+                    (*
+                        We are not told in startGame how many pieces are in the "bag" from the start, so we cannot
+                        track the amount of pieces left. Instead, we use the NotEnoughPieces error to handle situations
+                        where we cannot get the 7 pieces we ask for.
+                        (We could assume there are always 100 pieces, but we don't want to rely on such an assumption)
+                    *)
                     match e with
                     | GPENotEnoughPieces (_, n) ->
                         send cstream (SMChange (st |> State.hand |> MultiSet.toList |> List.take (int n)))
